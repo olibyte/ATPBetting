@@ -10,7 +10,9 @@ def features_past_generation(features_creation_function,
                              days,
                              feature_names_prefix,
                              data,
-                             indices):
+                             indices,
+                            #  highest_rankings=None #highest rankings feature
+                             ):
     """
     Creates features based on the past of the players. 
     Basically a for loop. Takes 1 match at a time, selects the matches that occurred during 
@@ -30,12 +32,20 @@ def features_past_generation(features_creation_function,
     for i,match_indice in enumerate(indices):
         match=data.iloc[match_indice,:]
         past_matches=data[(data.Date<match.Date)&(data.Date>=match.Date-datetime.timedelta(days=days))]
+        # comment this if else block out if we're not doing highest rankings
+        # if highest_rankings is not None:
+        #     match_features_outcome_1 = features_creation_function(1, match, past_matches, highest_rankings)
+        #     match_features_outcome_2 = features_creation_function(2, match, past_matches, highest_rankings)
+        # else:
+            # match_features_outcome_1 = features_creation_function(1, match, past_matches)
+            # match_features_outcome_2 = features_creation_function(2, match, past_matches)
+        
         match_features_outcome_1=features_creation_function(1,match,past_matches)
         match_features_outcome_2=features_creation_function(2,match,past_matches)
         matches_outcomes.append(match_features_outcome_1)
         matches_outcomes.append(match_features_outcome_2)
         if i%100==0:
-            print(str(i)+"/"+str(len(indices))+" matches treated.")
+            print(str(i)+"/"+str(len(indices))+" matches treated via features_past_generation.")
     train=pd.DataFrame(matches_outcomes)
     train.columns=[feature_names_prefix+str(i) for i in range(len(train.columns))]
     return train
@@ -49,7 +59,7 @@ def features_player_creation(outcome,match,past_matches):
     ##### General stats
     wins=past_matches[past_matches.Winner==player]    
     losses=past_matches[past_matches.Loser==player]    
-    todo=pd.concat([wins,losses],0)
+    todo=pd.concat([wins,losses],axis=0)
     features_player+=[len(wins),len(losses),len(todo)]
     per_victory=100*len(wins)/len(todo) if len(todo)>0 else np.nan
     features_player.append(per_victory)
@@ -57,7 +67,7 @@ def features_player_creation(outcome,match,past_matches):
     past_surface=past_matches[past_matches.Surface==surface]
     wins_surface=past_surface[past_surface.Winner==player]    
     losses_surface=past_surface[past_surface.Loser==player]    
-    todo_surface=pd.concat([wins_surface,losses_surface],0)
+    todo_surface=pd.concat([wins_surface,losses_surface],axis=0)
     features_player+=[len(wins_surface),len(losses_surface),len(todo_surface)]
     per_victory_surface=100*len(wins_surface)/len(todo_surface) if len(todo_surface)>0 else np.nan
     features_player.append(per_victory_surface)
@@ -70,10 +80,11 @@ def features_recent_creation(outcome,match,past_matches):
     ##### Last matches
     wins=past_matches[past_matches.Winner==player]    
     losses=past_matches[past_matches.Loser==player]    
-    todo=pd.concat([wins,losses],0)
+    todo=pd.concat([wins,losses],axis=0)
     if len(todo)==0:
         return [np.nan]*7
     # Days since last match
+    # To do, if dslm is greater than 3 months, we can reasonably conclude player was injured.
     dslm=(date-todo.iloc[-1,:].Date).days
     # Was the last match won ?
     wlmw=int(todo.iloc[-1,:].Winner==player)
@@ -102,7 +113,7 @@ def features_duo_creation(outcome,match,past):
     # % of the previous matches between these 2 players won by each.
     duo1=past[(past.Winner==player1)&(past.Loser==player2)]    
     duo2=past[(past.Winner==player2)&(past.Loser==player1)]    
-    duo=pd.concat([duo1,duo2],0)
+    duo=pd.concat([duo1,duo2],axis=0)
     features_duo+=[len(duo),len(duo1),len(duo2)]
     per_victory_player1=100*len(duo1)/len(duo) if len(duo)>0 else np.nan
     features_duo.append(per_victory_player1)
@@ -122,4 +133,47 @@ def features_general_creation(outcome,match,past_matches):
     best_ranking_as_loser=past_matches[(past_matches.Loser==player1)].LRank.min()
     best_ranking=min(best_ranking_as_winner,best_ranking_as_loser)
     features_general.append(best_ranking)
+
     return features_general
+'''
+def features_general_creation(outcome, match, past_matches, highest_rankings):
+    features_general = []
+
+    player1 = match.Winner if outcome == 1 else match.Loser
+    rank_player_1 = match.WRank if outcome == 1 else match.LRank
+    rank_player_2 = match.LRank if outcome == 1 else match.WRank
+    
+    features_general += [
+        rank_player_1,
+        rank_player_2,
+        rank_player_2 - rank_player_1,
+        int(rank_player_1 > rank_player_2)
+    ]
+    best_ranking_as_winner=past_matches[(past_matches.Winner==player1)].WRank.min()
+    best_ranking_as_loser=past_matches[(past_matches.Loser==player1)].LRank.min()
+    best_ranking=min(best_ranking_as_winner,best_ranking_as_loser)
+    features_general.append(best_ranking)
+    
+
+    # highest ranking experiment
+    # Update the highest ranking for player 1
+    if player1 not in highest_rankings:
+        highest_rankings[player1] = None  # Initialize with None
+
+    if highest_rankings[player1] is None or (rank_player_1 != '0' and rank_player_1 < highest_rankings[player1]):
+        highest_rankings[player1] = rank_player_1
+
+    # Update the highest ranking for player 2
+    player2 = match.Loser if outcome == 1 else match.Winner
+    if player2 not in highest_rankings:
+        highest_rankings[player2] = None  # Initialize with None
+
+    if highest_rankings[player2] is None or (rank_player_2 != '0' and rank_player_2 < highest_rankings[player2]):
+        highest_rankings[player2] = rank_player_2
+
+
+    features_general.append(highest_rankings[player1])
+    features_general.append(highest_rankings[player2])
+
+    return features_general
+'''

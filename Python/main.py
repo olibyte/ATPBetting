@@ -19,8 +19,8 @@ from utilities import *
 # We consider only the odds of Bet365 and Pinnacle.
 
 import glob
-filenames=list(glob.glob("../Data/20*.xls*"))
-l = [pd.read_excel(filename,encoding='latin-1') for filename in filenames]
+filenames=list(glob.glob("ATPBetting/Data/20*.xls*"))
+l = [pd.read_excel(filename) for filename in filenames]
 no_b365=[i for i,d in enumerate(l) if "B365W" not in l[i].columns]
 no_pi=[i for i,d in enumerate(l) if "PSW" not in l[i].columns]
 for i in no_pi:
@@ -30,7 +30,7 @@ for i in no_b365:
     l[i]["B365W"]=np.nan
     l[i]["B365L"]=np.nan
 l=[d[list(d.columns)[:13]+["Wsets","Lsets","Comment"]+["PSW","PSL","B365W","B365L"]] for d in [l[0]]+l[2:]]
-data=pd.concat(l,0)
+data=pd.concat(l,axis=0)
 
 ### Data cleaning
 data=data.sort_values("Date")
@@ -48,10 +48,10 @@ data=data.reset_index(drop=True)
 ### Elo rankings data
 # Computing of the elo ranking of each player at the beginning of each match.
 elo_rankings = compute_elo_rankings(data)
-data = pd.concat([data,elo_rankings],1)
+data = pd.concat([data,elo_rankings],axis=1)
 
 ### Storage of the raw dataset
-data.to_csv("../Generated Data/atp_data.csv",index=False)
+data.to_csv("ATPBetting/Generated Data/atp_data.csv",index=False)
 
 
 
@@ -60,13 +60,13 @@ data.to_csv("../Generated Data/atp_data.csv",index=False)
 ################################################################################
 ### We'll add some features to the dataset
 
-data=pd.read_csv("../Generated Data/atp_data.csv")
-data.Date = data.Date.apply(lambda x:datetime.strptime(x, '%Y-%m-%d'))
+data=pd.read_csv("ATPBetting/Generated Data/atp_data.csv")
+data.Date = data.Date.apply(lambda x:datetime.datetime.strptime(x, '%Y-%m-%d'))
 
 
 ######################### The period that interests us #########################
 
-beg = datetime(2008,1,1) 
+beg = datetime.datetime(2021,1,1) 
 end = data.Date.iloc[-1]
 indices = data[(data.Date>beg)&(data.Date<=end)].index
 
@@ -96,7 +96,7 @@ features_categorical = data[["Series","Court","Surface","Round","Best of","Tourn
 features_categorical_encoded = categorical_features_encoding(features_categorical)
 players_encoded = features_players_encoding(data)
 tournaments_encoded = features_tournaments_encoding(data)
-features_onehot = pd.concat([features_categorical_encoded,players_encoded,tournaments_encoded],1)
+features_onehot = pd.concat([features_categorical_encoded,players_encoded,tournaments_encoded],axis=1)
 
 
 ############################### Duplication of rows ############################
@@ -129,13 +129,9 @@ features = pd.concat([features_odds,
                   features_player,
                   features_duo,
                   features_general,
-                  features_recent],1)
+                  features_recent],axis=1)
 
-features.to_csv("../Generated Data/atp_data_features.csv",index=False)
-
-
-
-
+features.to_csv("ATPBetting/Generated Data/atp_data_features.csv",index=False)
 
 ################################################################################
 #################### Strategy assessment - ROI computing #######################
@@ -146,9 +142,9 @@ features.to_csv("../Generated Data/atp_data_features.csv",index=False)
 ## validation (the consecutive matches right before the testing matches)
 
 ######################### Confidence computing for each match ############################
-features=pd.read_csv("../Generated Data/atp_data_features.csv")
+features=pd.read_csv("ATPBetting/Generated Data/atp_data_features.csv")
 
-start_date=datetime(2013,1,1) #first day of testing set
+start_date=datetime.datetime(2023,1,1) #first day of testing set
 test_beginning_match=data[data.Date==start_date].index[0] #id of the first match of the testing set
 span_matches=len(data)-test_beginning_match+1
 duration_val_matches=300
@@ -169,7 +165,7 @@ lambd=[0]
 alpha=[2]
 num_rounds=[300]
 early_stop=[5]
-params=np.array(np.meshgrid(learning_rate,max_depth,min_child_weight,gamma,csbt,lambd,alpha,num_rounds,early_stop)).T.reshape(-1,9).astype(np.float)
+params=np.array(np.meshgrid(learning_rate,max_depth,min_child_weight,gamma,csbt,lambd,alpha,num_rounds,early_stop)).T.reshape(-1,9).astype(np.float64)
 xgb_params=params[0]
 
 
@@ -180,7 +176,7 @@ for start in key_matches:
     conf=vibratingAssessStrategyGlobal(start,10400,duration_val_matches,duration_test_matches,xgb_params,nb_players,nb_tournaments,features,data)
     confs.append(conf)
 confs=[el for el in confs if type(el)!=int]
-conf=pd.concat(confs,0)
+conf=pd.concat(confs,axis=0)
 ## We add the date to the confidence dataset (can be useful for analysis later)
 dates=data.Date.reset_index()
 dates.columns=["match","date"]
@@ -190,54 +186,4 @@ conf=conf.reset_index(drop=True)
 
 
 ## We store this dataset
-conf.to_csv("../Generated Data/confidence_data.csv",index=False)
-
-## Plot of ROI according to the % of matches we bet on
-plotProfits(conf,"Test on the period Jan. 2013 -> March 2018")
-
-
-
-
-################################################################################
-######################### ROI variability along time ###########################
-################################################################################
-
-## We bet only on 35% of the matches
-confconf=conf.iloc[:int(0.35*len(conf)),:]
-
-def profitsAlongTime(conf,matches_delta):
-    span_matches=span_matches=conf.match.max()-conf.match.min()-1
-    N=int(span_matches/matches_delta)+1
-    milestones=np.array([conf.match.min()+matches_delta*i for i in range(N)])
-    profits=[]
-    lens=[]
-    for i in range(N-1):
-        beg=milestones[i]
-        end=milestones[i+1]-1
-        conf_sel=confconf[(conf.match>=beg)&(conf.match<=end)]
-        l=len(conf_sel)
-        lens.append(l)
-        if l==0:
-            profits.append(0)
-        else:    
-            p=profitComputation(100,conf_sel)
-            profits.append(p)
-    profits=np.array(profits)
-    return profits,lens
-
-matches_delta=117
-profits,lens=profitsAlongTime(confconf,matches_delta)
-
-fig=plt.figure(figsize=(5.5,3))
-ax = fig.add_axes([0,0,1,0.9])  
-ax.plot(profits,linewidth=2,marker="o")
-plt.suptitle("Betting on sections of 100 matches")
-ax.set_xlabel("From 2013 to 2018")
-ax.set_ylabel("ROI")
-
-fig=plt.figure(figsize=(5.5,3))
-ax = fig.add_axes([0,0,1,0.9])  
-ax.plot(lens,linewidth=2,marker="o")
-plt.suptitle("Betting on sections of 100 matches")
-ax.set_xlabel("From 2013 to 2018")
-ax.set_ylabel("For each section, number of matches we bet on")
+conf.to_csv("ATPBetting/Generated Data/confidence_data.csv",index=False)

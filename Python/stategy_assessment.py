@@ -77,7 +77,7 @@ def assessStrategyGlobal(test_beginning_match,
     # players that won the most matches to avoid overfitting and make the process quicker
     # Biggest players :
     biggest_players=data.iloc[range(beg_train,end_train),:][["Winner","Loser"]]
-    biggest_players=pd.concat([biggest_players.Winner,biggest_players.Loser],0)
+    biggest_players=pd.concat([biggest_players.Winner,biggest_players.Loser],axis=0)
     biggest_players=list(biggest_players.value_counts().index[:nb_players])
     player_columns=[el for el in xtrain.columns if el[:6]=="player"]
     to_drop_players=[el for el in player_columns if el[7:] not in biggest_players]
@@ -87,9 +87,9 @@ def assessStrategyGlobal(test_beginning_match,
     tournament_columns=[el for el in xtrain.columns if el[:10]=="tournament"]
     to_drop_tournaments=[el for el in tournament_columns if el[11:] not in biggest_tournaments]
     # We drop smallest Tournaments and players
-    xtrain=xtrain.drop(to_drop_players+to_drop_tournaments,1)
-    xval=xval.drop(to_drop_players+to_drop_tournaments,1)
-    xtest=xtest.drop(to_drop_players+to_drop_tournaments,1)
+    xtrain=xtrain.drop(to_drop_players+to_drop_tournaments,axis=1)
+    xval=xval.drop(to_drop_players+to_drop_tournaments,axis=1)
+    xtest=xtest.drop(to_drop_players+to_drop_tournaments,axis=1)
     
     ### ML model training
     model=xgbModelBinary(xtrain,ytrain,xval,yval,xgb_params,sample_weights=None)
@@ -156,7 +156,7 @@ def vibratingAssessStrategyGlobal(km,dur_train,duration_val_matches,delta,xgb_pa
                              c.confidence4,c.confidence5,
                              c.confidence6,c.confidence7)))
         c=pd.DataFrame.from_records(list(c.apply(mer)))
-        conf=pd.concat([confTest1[["match","PSW"]],c],1)
+        conf=pd.concat([confTest1[["match","PSW"]],c],axis=1)
         conf.columns=["match","PSW","win0","confidence0"]
     else:
         conf=0
@@ -172,32 +172,3 @@ def mer(t):
         return 1,conf[w].mean()
     else:
         return 0,conf[~w].mean()
-
-############################### PROFITS COMPUTING AND VISUALIZATION ############
-
-def profitComputation(percentage,confidence,model_name="0"):
-    """
-    Input : percentage of matches we want to bet on,confidence dataset
-    Output : ROI
-    """
-    tot_number_matches=len(confidence)
-    number_matches_we_bet_on=int(tot_number_matches*(percentage/100))
-    matches_selection=confidence.head(number_matches_we_bet_on)
-    profit=100*(matches_selection.PSW[matches_selection["win"+model_name]==1].sum()-number_matches_we_bet_on)/number_matches_we_bet_on
-    return profit
-
-def plotProfits(confidence,title=""):
-    """
-    Given a confidence dataset, plots the ROI according to the percentage of matches
-    we bet on. 
-    """
-    profits=[]
-    ticks=range(5,101)
-    for i in ticks:
-        p=profitComputation(i,confidence)
-        profits.append(p)
-    plt.plot(ticks,profits)
-    plt.xticks(range(0,101,5))
-    plt.xlabel("% of matches we bet on")
-    plt.ylabel("Return on investment (%)")
-    plt.suptitle(title)
